@@ -43,6 +43,9 @@ class Neighborhood(BasePlayer):
         self.capacity = 0
         self.characteristics = characteristics
     
+    def _unmatch(self, other):
+        self.matching = [b for b in self.matching if b != other]
+    
     def prefers(self, buyer, other):
         """Determines whether the Neighborhood is a better fit for one buyer or another"""
         buyer_fit = buyer.get_fitness(self)
@@ -73,9 +76,15 @@ class Homebuyer(BasePlayer):
     def __init__(self, name: str, goals: Type[PearlVector], preferences: List[Neighborhood]) -> None:
         super().__init__(name)
         self.goals = goals
+        self.matching = None
         self.set_prefs(preferences)
-        self.matching = {}
         self.fits = {n.name: self.goals @ n.characteristics for n in preferences}
+    
+    def _match(self, other):
+        self.matching = other
+
+    def _unmatch(self):
+        self.matching = None
     
     def get_fitness(self, neighborhood: Neighborhood):
         if neighborhood.name in self.fits.keys():
@@ -153,6 +162,12 @@ def _match_pair(player, other):
 
     player._match(other)
     other._match(player)
+
+def _unmatch_pair(buyer: Homebuyer, neighborhood: Neighborhood):
+    """Unmatch a (buyer, neighborhood)-pair."""
+
+    buyer._unmatch()
+    neighborhood._unmatch(buyer)
 
 
 def buyer_optimal_match(buyers: List[Homebuyer], neighborhoods: List[Neighborhood]):

@@ -2,7 +2,7 @@
 from typing import cast
 import unittest
 
-from match import Homebuyer, Neighborhood, PearlVector, vector_fit, tokens_for_type, neighborhood_from_string, buyer_from_string
+from match import Homebuyer, Neighborhood, PearlVector, vector_fit, tokens_for_type, neighborhood_from_string, buyer_from_string, _match_pair, _unmatch_pair
 import exceptions
 
 class TestVectors(unittest.TestCase):
@@ -83,12 +83,12 @@ class TestHomebuyers(unittest.TestCase):
 
 class TestMatching(unittest.TestCase):
     def setUp(self):
-        neighborhoods = [neighborhood_from_string(n_string) for n_string in [
+        neighborhoods = [cast(Neighborhood, neighborhood_from_string(n_string)) for n_string in [
             'N N0 E:7 W:7 R:10',
             'N N1 E:2 W:1 R:1',
             'N N2 E:7 W:6 R:4',]]
         self.neighborhood_dict = {n.name: n for n in neighborhoods}
-        self.homebuyers = [buyer_from_string(h_string, self.neighborhood_dict) for h_string in [
+        self.homebuyers = [cast(Homebuyer, buyer_from_string(h_string, self.neighborhood_dict)) for h_string in [
             'H H0 E:3 W:9 R:2 N2>N0>N1',
             'H H1 E:4 W:3 R:7 N0>N2>N1',
             'H H2 E:4 W:0 R:10 N0>N2>N1',
@@ -120,6 +120,26 @@ class TestMatching(unittest.TestCase):
         neighborhood._match(buyer1)
         neighborhood._match(buyer1)
         self.assertListEqual(neighborhood.matching, [buyer1])
+    
+    def test_match_via_util(self):
+        neighborhood = self.neighborhood_dict['N0']
+        buyer1 = self.homebuyers[0] # fitness: 104
+        _match_pair(buyer1, neighborhood)
+        self.assertEqual(buyer1.matching, neighborhood)
+        self.assertListEqual(neighborhood.matching, [buyer1])
+    
+    def test_unmatch_via_util(self):
+        neighborhood = self.neighborhood_dict['N0']
+        buyer1 = self.homebuyers[0] # fitness: 104
+        buyer2 = self.homebuyers[1] # fitness: 119
+        buyer3 = self.homebuyers[2] # fitness: 128
+        _match_pair(buyer1, neighborhood)
+        _match_pair(buyer2, neighborhood)
+        _match_pair(buyer3, neighborhood)
+        _unmatch_pair(buyer1, neighborhood)
+        self.assertIsNone(buyer1.matching)
+        self.assertListEqual(neighborhood.matching, [buyer3, buyer2])
+
 
 if __name__ == '__main__':
     unittest.main()
