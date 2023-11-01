@@ -39,64 +39,95 @@ class PearlVector:
 
 class Neighborhood(BasePlayer):
     def __init__(self, name: str, characteristics: Type[PearlVector]) -> None:
+        super().__init__(name=name)
         self.capacity = 0
-        self.name = name
         self.characteristics = characteristics
-        self.matching = {}
     
-    @staticmethod
-    def from_string(n_string: str) -> object:
-        tokens = tokens_for_type(n_string, 'N')
+    def prefers(self, buyer, other):
+        """Determines whether the Neighborhood is a better fit for one buyer or another"""
+        buyer_fit = buyer.get_fitness(self)
+        other_fit = other.get_fitness(self)
+        return buyer_fit > other_fit
+    
+    def get_worst_match(self):
+        return self.matching[-1]
+    
+    def get_successors(self):
+        """Get the successors to the neighborhoods's worst current match."""
 
-        name_token = None
-        score_tokens = []
+        idx = self.prefs.index(self.get_worst_match())
+        return self.prefs[idx + 1 :]
 
-        for token in tokens:
-            # tokens with a ':' represent goal ratings:
-            if ':' in token:
-                score_tokens.append(token)
-            # any other string must be the name
-            else:
-                name_token = token
-
-        characteristic_vector = PearlVector.from_tokens(score_tokens)
-        return Neighborhood(name=name_token, characteristics=characteristic_vector)
+    def _match(self, other: BasePlayer):
+        """Make a match between this Neighborhood and some player.
+        
+        This needs to add a player to the current prefs list, but put that list in order by fitness."""
+        if other in self.matching:
+            return self.matching
+        
+        self.matching.append(other)
+        self.matching.sort(key=lambda player: player.get_fitness(self), reverse=True)
 
 
 class Homebuyer(BasePlayer):
     def __init__(self, name: str, goals: Type[PearlVector], preferences: List[Neighborhood]) -> None:
-        self.name = name
+        super().__init__(name)
         self.goals = goals
-        self.preferences = preferences
+        self.set_prefs(preferences)
         self.matching = {}
         self.fits = {n.name: self.goals @ n.characteristics for n in preferences}
+    
+    def get_fitness(self, neighborhood: Neighborhood):
+        if neighborhood.name in self.fits.keys():
+            return self.fits[neighborhood.name]
+        else:
+            fitness = self.goals @ neighborhood.characteristics
+            self.fits[neighborhood.name] = fitness
+            return fitness
 
-    def get_favorite():
-        pass
+    def get_favorite(self) -> Neighborhood:
+        return self.prefs[0]
 
-    @staticmethod
-    def from_string(h_string: str, neighborhoods: Dict[str, Neighborhood]) -> object:
-        tokens = tokens_for_type(h_string, 'H')
+def buyer_from_string(h_string: str, neighborhoods: Dict[str, Neighborhood]) -> object:
+    tokens = tokens_for_type(h_string, 'H')
 
-        name_token = None
-        goal_tokens = []
-        preference_string = None
+    name_token = None
+    goal_tokens = []
+    preference_string = None
 
-        for token in tokens:
-            # tokens with a ':' represent goal ratings:
-            if ':' in token:
-                goal_tokens.append(token)
-            # and there should be one and only one string with '>' indicating neighborhood prefs
-            elif '>' in token:
-                preference_string = token
-            # and any other string must be the name
-            else:
-                name_token = token
+    for token in tokens:
+        # tokens with a ':' represent goal ratings:
+        if ':' in token:
+            goal_tokens.append(token)
+        # and there should be one and only one string with '>' indicating neighborhood prefs
+        elif '>' in token:
+            preference_string = token
+        # and any other string must be the name
+        else:
+            name_token = token
 
-        goal_vector = PearlVector.from_tokens(goal_tokens)
-        preference_keys = preference_string.split('>')
-        preference_list = [neighborhoods[key] for key in preference_keys]
-        return Homebuyer(name=name_token, goals=goal_vector, preferences=preference_list)
+    goal_vector = PearlVector.from_tokens(goal_tokens)
+    preference_keys = preference_string.split('>')
+    preference_list = [neighborhoods[key] for key in preference_keys if key in neighborhoods.keys()]
+    return Homebuyer(name=name_token, goals=goal_vector, preferences=preference_list)
+
+def neighborhood_from_string(n_string: str) -> Neighborhood:
+    tokens = tokens_for_type(n_string, 'N')
+
+    name_token = None
+    score_tokens = []
+
+    for token in tokens:
+        # tokens with a ':' represent goal ratings:
+        if ':' in token:
+            score_tokens.append(token)
+        # any other string must be the name
+        else:
+            name_token = token
+
+    characteristic_vector = PearlVector.from_tokens(score_tokens)
+    return Neighborhood(name=name_token, characteristics=characteristic_vector)
+
 
 def tokens_for_type(data_string: str, type_indicator: str):
     # let's start by being case tolerant; we'll work in uppercase:
@@ -108,6 +139,21 @@ def tokens_for_type(data_string: str, type_indicator: str):
     
 def vector_fit(vector: Type[PearlVector], other_vector: Type[PearlVector]):
     return vector @ other_vector
+
+def _delete_pair(player, other):
+    """Make a player forget another (and vice versa), deleting the pair from
+    further consideration in the game."""
+
+    player._forget(other)
+    other._forget(player)
+
+
+def _match_pair(player, other):
+    """Match the players given by `player` and `other`."""
+
+    player._match(other)
+    other._match(player)
+
 
 def buyer_optimal_match(buyers: List[Homebuyer], neighborhoods: List[Neighborhood]):
     """
@@ -167,13 +213,13 @@ def read_input_file(file_name: str) -> dict:
                 # Homebuyer creation depends on having the neighborhoods, so save these lines and parse them last
                 homebuyer_lines.append(line)
             elif line[0] == 'N':
-                neighborhood = Neighborhood.from_string(line)
+                neighborhood = neighborhood_from_string(line)
                 neighborhoods[neighborhood.name] = neighborhood
             else:
                 # all other lines are ignored
                 pass
     for line in homebuyer_lines:
-        homebuyer  = Homebuyer.from_string(line, neighborhoods)
+        homebuyer  = buyer_from_string(line, neighborhoods)
         homebuyers[homebuyer.name] = homebuyer
     return { 'neighborhoods': neighborhoods, 'homebuyers': homebuyers }
 

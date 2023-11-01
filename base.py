@@ -27,7 +27,7 @@ class BasePlayer:
     def __init__(self, name):
         self.name = name
         self.prefs = []
-        self.matching = None
+        self.matching = []
 
         self._pref_names = []
         self._original_prefs = None
