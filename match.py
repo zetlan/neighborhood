@@ -1,9 +1,18 @@
-"""A game of matching home buyers to their neighborhoods"""
+"""A game of matching home buyers to their neighborhoods.
+
+Some portions of this have been modeled after, adapted from, or wholesale copied
+from the `matching` module here: https://github.com/daffidwilde/matching. Out-of-the-box that 
+module would solve a base Hospital-Resident matching game, but we need to sort potential homebuyers
+by their "fit" to the neighborhoods, and while subclass-and-override would be a fine approach, it would
+also require setting up `matching` and its dependency `NumPy`, and I'm trying to get this done without
+falling into Dependency Hell.
+"""
 
 from functools import reduce
 import operator
 from typing import Type, List, Dict
 
+from base import BasePlayer
 import exceptions
 
 class PearlVector:
@@ -28,7 +37,7 @@ class PearlVector:
             values[key] = float(value)
         return PearlVector(energy=values['E'], water=values['W'], resilience=values['R'])
 
-class Neighborhood:
+class Neighborhood(BasePlayer):
     def __init__(self, name: str, characteristics: Type[PearlVector]) -> None:
         self.capacity = 0
         self.name = name
@@ -54,7 +63,7 @@ class Neighborhood:
         return Neighborhood(name=name_token, characteristics=characteristic_vector)
 
 
-class Homebuyer:
+class Homebuyer(BasePlayer):
     def __init__(self, name: str, goals: Type[PearlVector], preferences: List[Neighborhood]) -> None:
         self.name = name
         self.goals = goals
