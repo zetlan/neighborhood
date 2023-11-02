@@ -10,7 +10,7 @@ falling into Dependency Hell.
 import argparse
 import logging
 import sys
-from typing import List, Dict
+from typing import List
 
 from buyer import Homebuyer
 from neighborhood import Neighborhood
