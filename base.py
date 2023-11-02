@@ -1,5 +1,6 @@
-import warnings
 import abc
+
+from vector import PearlVector
 
 class BasePlayer:
     """An abstract base class to represent a player within a matching game.
@@ -24,10 +25,12 @@ class BasePlayer:
         not update after the first ``set_prefs`` method call.
     """
 
-    def __init__(self, name):
+    def __init__(self, name, vector: PearlVector):
         self.name = name
         self.prefs = []
         self.matching = []
+        self.vector = vector
+        self.fits = {}
 
         self._pref_names = []
         self._original_prefs = None
@@ -40,6 +43,14 @@ class BasePlayer:
         list."""
 
         self.prefs = [p for p in self.prefs if p != other]
+    
+    def get_fitness(self, other):
+        if other.name in self.fits.keys():
+            return self.fits[other.name]
+        else:
+            fitness = self.vector @ other.vector
+            self.fits[other.name] = fitness
+            return fitness
 
     def unmatched_message(self):
         """Message to say the player is not matched."""
@@ -56,7 +67,6 @@ class BasePlayer:
 
     def set_prefs(self, players):
         """Set the player's preferences to be a list of players."""
-
         self.prefs = players
         self._pref_names = [player.name for player in players]
 

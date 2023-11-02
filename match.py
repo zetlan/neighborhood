@@ -3,159 +3,20 @@
 Some portions of this have been modeled after, adapted from, or wholesale copied
 from the `matching` module here: https://github.com/daffidwilde/matching. Out-of-the-box that 
 module would solve a base Hospital-Resident matching game, but we need to sort potential homebuyers
-by their "fit" to the neighborhoods, and while subclass-and-override would be a fine approach, it would
+by their "fit" to the neighborhoods, and while subclass-and-override might be a fine approach, it would
 also require setting up `matching` and its dependency `NumPy`, and I'm trying to get this done without
 falling into Dependency Hell.
 """
+import argparse
+import logging
+import sys
+from typing import List, Dict
 
-from functools import reduce
-import operator
-from typing import Type, List, Dict
+from buyer import Homebuyer
+from neighborhood import Neighborhood
+from util import read_input_file, write_output_file
 
-from base import BasePlayer
-import exceptions
-
-class PearlVector:
-    def __init__(self, energy, water, resilience) -> None:
-        self.energy = energy
-        self.water = water
-        self.resilience = resilience
-    
-    def _to_list(self):
-        return [self.energy, self.water, self.resilience]
-    
-    def __matmul__(self, other):
-        self_list = self._to_list()
-        other_list = other._to_list()
-        return reduce(operator.add, [s * o for s, o in zip(self_list, other_list)], 0)
-
-    @staticmethod
-    def from_tokens(tokens: List[str]) -> object:
-        values = {}
-        for token in tokens:
-            key, value = token.split(':')
-            values[key] = float(value)
-        return PearlVector(energy=values['E'], water=values['W'], resilience=values['R'])
-
-class Neighborhood(BasePlayer):
-    def __init__(self, name: str, characteristics: Type[PearlVector]) -> None:
-        super().__init__(name=name)
-        self.capacity = 0
-        self.characteristics = characteristics
-    
-    def _unmatch(self, other):
-        self.matching = [b for b in self.matching if b != other]
-    
-    def prefers(self, buyer, other):
-        """Determines whether the Neighborhood is a better fit for one buyer or another"""
-        buyer_fit = buyer.get_fitness(self)
-        other_fit = other.get_fitness(self)
-        return buyer_fit > other_fit
-    
-    def get_worst_match(self):
-        return self.matching[-1]
-    
-    def get_successors(self):
-        """Get the successors to the neighborhoods's worst current match."""
-
-        idx = self.prefs.index(self.get_worst_match())
-        return self.prefs[idx + 1 :]
-
-    def _match(self, other: BasePlayer):
-        """Make a match between this Neighborhood and some player.
-        
-        This needs to add a player to the current prefs list, but put that list in order by fitness."""
-        if other in self.matching:
-            return self.matching
-        
-        self.matching.append(other)
-        self.matching.sort(key=lambda player: player.get_fitness(self), reverse=True)
-
-
-class Homebuyer(BasePlayer):
-    def __init__(self, name: str, goals: Type[PearlVector], preferences: List[Neighborhood]) -> None:
-        super().__init__(name)
-        self.goals = goals
-        self.matching = None
-        self.set_prefs(preferences)
-        self.fits = {n.name: self.goals @ n.characteristics for n in preferences}
-    
-    def _match(self, other):
-        self.matching = other
-
-    def _unmatch(self):
-        self.matching = None
-    
-    def get_fitness(self, neighborhood: Neighborhood):
-        if neighborhood.name in self.fits.keys():
-            return self.fits[neighborhood.name]
-        else:
-            fitness = self.goals @ neighborhood.characteristics
-            self.fits[neighborhood.name] = fitness
-            return fitness
-
-    def get_favorite(self) -> Neighborhood:
-        return self.prefs[0]
-
-def buyer_from_string(h_string: str, neighborhoods: Dict[str, Neighborhood]) -> object:
-    tokens = tokens_for_type(h_string, 'H')
-
-    name_token = None
-    goal_tokens = []
-    preference_string = None
-
-    for token in tokens:
-        # tokens with a ':' represent goal ratings:
-        if ':' in token:
-            goal_tokens.append(token)
-        # and there should be one and only one string with '>' indicating neighborhood prefs
-        elif '>' in token:
-            preference_string = token
-        # and any other string must be the name
-        else:
-            name_token = token
-
-    goal_vector = PearlVector.from_tokens(goal_tokens)
-    preference_keys = preference_string.split('>')
-    preference_list = [neighborhoods[key] for key in preference_keys if key in neighborhoods.keys()]
-    return Homebuyer(name=name_token, goals=goal_vector, preferences=preference_list)
-
-def neighborhood_from_string(n_string: str) -> Neighborhood:
-    tokens = tokens_for_type(n_string, 'N')
-
-    name_token = None
-    score_tokens = []
-
-    for token in tokens:
-        # tokens with a ':' represent goal ratings:
-        if ':' in token:
-            score_tokens.append(token)
-        # any other string must be the name
-        else:
-            name_token = token
-
-    characteristic_vector = PearlVector.from_tokens(score_tokens)
-    return Neighborhood(name=name_token, characteristics=characteristic_vector)
-
-
-def tokens_for_type(data_string: str, type_indicator: str):
-    # let's start by being case tolerant; we'll work in uppercase:
-    tokens = data_string.upper().split(' ')
-    first_token = tokens.pop(0)
-    if first_token != type_indicator:
-        raise exceptions.DataParsingError(data_string)
-    return tokens
-    
-def vector_fit(vector: Type[PearlVector], other_vector: Type[PearlVector]):
-    return vector @ other_vector
-
-def _delete_pair(player, other):
-    """Make a player forget another (and vice versa), deleting the pair from
-    further consideration in the game."""
-
-    player._forget(other)
-    other._forget(player)
-
+logger = logging.getLogger(__name__)
 
 def _match_pair(player, other):
     """Match the players given by `player` and `other`."""
@@ -168,7 +29,6 @@ def _unmatch_pair(buyer: Homebuyer, neighborhood: Neighborhood):
 
     buyer._unmatch()
     neighborhood._unmatch(buyer)
-
 
 def buyer_optimal_match(buyers: List[Homebuyer], neighborhoods: List[Neighborhood]):
     """
@@ -191,60 +51,54 @@ def buyer_optimal_match(buyers: List[Homebuyer], neighborhoods: List[Neighborhoo
     # homebuyers (that is, we expect the number of homebuyers modulo the number of neighborhoods is zero).
     # 
     # TODO: check this assumption
-    # TODO: avoid division by zero
+    # TODO: avoid division by zero – but if there were no neighborhoods, we'd have bigger problems
     capacity = len(free_buyers) // len(neighborhoods)
+
     for n in neighborhoods:
-        # yes, this is a side effect, but it's for a good cause
+        # initialize capacity and neighborhood fits for buyers
         n.capacity = capacity
+        n.set_prefs(free_buyers)
 
     while free_buyers:
-        buyer = free_buyers.pop()
-        neighborhood = buyer.get_favorite()
-
-        if len(neighborhood.matching) == neighborhood.capacity:
-            worst = neighborhood.get_worst_match()
-            _unmatch_pair(worst, neighborhood)
-            free_buyers.append(worst)
-
-        _match_pair(buyer, neighborhood)
-
-        if len(neighborhood.matching) == neighborhood.capacity:
-            successors = neighborhood.get_successors()
-            for successor in successors:
-                _delete_pair(neighborhood, successor)
-                if not successor.prefs and successor in free_buyers:
-                    free_buyers.remove(successor)
-
+        buyer = free_buyers.pop(0)
+        logger.debug("Starting with buyer " + buyer.name)
+        while not buyer.matching:
+            for neighborhood in buyer.prefs:
+                logger.debug("\t checking neighborhood " + neighborhood.name)
+                if buyer.matching:
+                    logger.debug("\t buyer is matched, continuing")
+                    continue
+                if len(neighborhood.matching) < neighborhood.capacity:
+                    logger.debug("\t it's a match!")
+                    _match_pair(buyer, neighborhood)
+                else:
+                    worst_match = neighborhood.get_worst_match()
+                    worst_fit = neighborhood.get_fitness(worst_match)
+                    buyer_fit = neighborhood.get_fitness(buyer)
+                    if buyer_fit > worst_fit:
+                        logger.debug("\t buyer is a better fit than the worst match")
+                        _unmatch_pair(worst_match, neighborhood)
+                        free_buyers.append(worst_match)
+                        _match_pair(buyer, neighborhood)
+                    else:
+                        logger.debug("\t buyer is not as good a fit, continuing to check")
     return {n: n.matching for n in neighborhoods}
 
-def read_input_file(file_name: str) -> dict:
-    """Reads the file specified by file_name and returns a dictionary containing neighborhood and homebuyer dictionaries"""
-    neighborhoods = {}
-    homebuyers = {}
-    homebuyer_lines = []
-    with open(file_name) as input_file:
-        for line in input_file:
-            if line[0] == 'H':
-                # Homebuyer creation depends on having the neighborhoods, so save these lines and parse them last
-                homebuyer_lines.append(line)
-            elif line[0] == 'N':
-                neighborhood = neighborhood_from_string(line)
-                neighborhoods[neighborhood.name] = neighborhood
-            else:
-                # all other lines are ignored
-                pass
-    for line in homebuyer_lines:
-        homebuyer  = buyer_from_string(line, neighborhoods)
-        homebuyers[homebuyer.name] = homebuyer
-    return { 'neighborhoods': neighborhoods, 'homebuyers': homebuyers }
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Match homebuyers to neighborhoods, in a buyer-optimal way')
+    parser.add_argument('input_file', type=str, 
+                        help='Input file with neighborhood and homebuyer defintions.')
+    parser.add_argument('--output', type=str, required=False,  dest='output_file',
+                        help='Name of file where output should be written (will use stdout if not specified).')
+    parser.add_argument('--debug', dest='debug', action='store_const', const=True, default=False, 
+                        help='If present, turns on debug logging')
+    parsed_args = parser.parse_args(sys.argv[1:])
 
-def write_output_file(file_name: str, matches: Dict[str, List[Homebuyer]]) -> None:
-    """Write the matches out to a file.
+    input_file = parsed_args.input_file
+    output_file = parsed_args.output_file
+    if parsed_args.debug:
+        logger.setLevel(logging.DEBUG)
     
-    Matches are presumed to be provided in a dictionary whose keys are the names of the neighborhoods
-    and whose values are ordered lists of the homebuyers matched to those neighborhoods.
-    """
-    with open(file_name, "w") as output_file:
-        for key, buyers in matches.items():
-            buyer_text = ' '.join([f"{buyer.name}({buyer.fits[key]})" for buyer in buyers])
-            print(f"{key}: {buyer_text}", file=output_file)
+    input_data = read_input_file(input_file)
+    matches = buyer_optimal_match(input_data['homebuyers'], input_data['neighborhoods'])
+    write_output_file(output_file, matches)

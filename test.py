@@ -2,7 +2,11 @@
 from typing import cast
 import unittest
 
-from match import Homebuyer, Neighborhood, PearlVector, vector_fit, tokens_for_type, neighborhood_from_string, buyer_from_string, _match_pair, _unmatch_pair
+from buyer import Homebuyer, buyer_from_string
+from match import _match_pair, _unmatch_pair, buyer_optimal_match
+from neighborhood import Neighborhood, neighborhood_from_string
+from util import tokens_for_type
+from vector import PearlVector
 import exceptions
 
 class TestVectors(unittest.TestCase):
@@ -22,7 +26,7 @@ class TestVectors(unittest.TestCase):
         vector = PearlVector(1, 2, 3)
         other_vector = PearlVector(4, 5, 6)
 
-        fit = vector_fit(vector, other_vector)
+        fit = vector @ other_vector
         self.assertEqual(fit, 32)
     
 class TestUtils(unittest.TestCase):
@@ -43,22 +47,54 @@ class TestUtils(unittest.TestCase):
         self.assertTrue('E:2' in tokens)
 
 class TestNeighborhoods(unittest.TestCase):
-    def test_build_from_string(self):
-        n = neighborhood_from_string('N N1 E:10 W:1 R:5')
+    def setUp(self) -> None:
+        self.neighborhood = cast(Neighborhood, neighborhood_from_string('N N0 E:7 W:7 R:10'))
+        self.homebuyers = [cast(Homebuyer, buyer_from_string(h_string, {'N0': self.neighborhood})) for h_string in [
+            'H H0 E:3 W:9 R:2 N2>N0>N1',
+            'H H1 E:4 W:3 R:7 N0>N2>N1'
+        ]]
+        self.homebuyers.sort(key=lambda b: b.name)
+    
+    def test_build_neighborhood_from_string(self):
+        n = self.neighborhood
         c = n.characteristics
-        self.assertTrue(c.energy == 10)
-        self.assertTrue(c.water == 1)
-        self.assertTrue(c.resilience == 5)
-        self.assertTrue(n.name == 'N1')
+        self.assertTrue(c.energy == 7)
+        self.assertTrue(c.water == 7)
+        self.assertTrue(c.resilience == 10)
+        self.assertTrue(n.name == 'N0')
+    
+    def test_build_homebuyer_from_string(self):
+        neighborhoods = [neighborhood_from_string(n_string) for n_string in [
+            'N N0 E:7 W:7 R:10',
+            'N N1 E:2 W:1 R:1',
+            'N N2 E:7 W:6 R:4',]]
+        neighborhood_dict = {n.name: n for n in neighborhoods}
+        buyer = cast(Homebuyer, buyer_from_string('H H0 E:3 W:9 R:2 N2>N0>N1', neighborhood_dict))
+        self.assertListEqual(buyer.prefs, [neighborhood_dict['N2'], neighborhood_dict['N0'], neighborhood_dict['N1']])
     
     def test_prefers(self):
-        neighborhood = cast(Neighborhood, neighborhood_from_string('N N0 E:7 W:7 R:10'))
+        neighborhood = self.neighborhood
         n_dict = {'N0': neighborhood}
         # buyer 1 should have fitness 104
-        buyer1 = buyer_from_string('H H0 E:3 W:9 R:2 N2>N0>N1', n_dict)
+        buyer1 = self.homebuyers[0]
         # buyer 2 should have fitness 119
-        buyer2 = buyer_from_string('H H1 E:4 W:3 R:7 N0>N2>N1', n_dict)
+        buyer2 = self.homebuyers[1]
         self.assertTrue(neighborhood.prefers(buyer2, buyer1))
+    
+    def test_get_successors(self):
+        neighborhood = self.neighborhood
+        neighborhood.set_prefs(self.homebuyers)
+        buyers = self.homebuyers[:]
+        # ensure buyers come back as H0, H1; the order matters to this test
+        buyers.sort(key=lambda b: b.name)
+        # buyer 1 should have fitness 104
+        buyer1 = buyers[0]
+        # buyer 2 should have fitness 119
+        buyer2 = buyers[1]
+        _match_pair(buyer2, neighborhood)
+        self.assertListEqual(neighborhood.matching, [buyer2])
+        successors = neighborhood.get_successors()
+        self.assertListEqual(successors, [buyer1])
 
 class TestHomebuyers(unittest.TestCase):
     def setUp(self):
@@ -102,6 +138,7 @@ class TestMatching(unittest.TestCase):
             'H H10 E:6 W:4 R:5 N0>N2>N1',
             'H H11 E:8 W:4 R:7 N0>N1>N2'
         ]]
+        self.homebuyers.sort(key=lambda b: b.name)
 
     def test_add_match(self):
         neighborhood = self.neighborhood_dict['N0']
@@ -139,6 +176,30 @@ class TestMatching(unittest.TestCase):
         _unmatch_pair(buyer1, neighborhood)
         self.assertIsNone(buyer1.matching)
         self.assertListEqual(neighborhood.matching, [buyer3, buyer2])
+    
+    def test_buyer_optimal_matching_simple(self):
+        buyer_dict = {b.name: b for b in self.homebuyers}
+        buyers = [buyer_dict['H0'], buyer_dict['H1'], buyer_dict['H2']]
+        b0, b1, b2 = buyers
+
+        n0 = self.neighborhood_dict['N0']
+        n1 = self.neighborhood_dict['N1']
+        n2 = self.neighborhood_dict['N2']
+
+        match_dict = buyer_optimal_match(buyers, list(self.neighborhood_dict.values()))
+        self.assertListEqual(n0.matching, [b2])
+        self.assertListEqual(n1.matching, [b1])
+        self.assertListEqual(n2.matching, [b0])
+    
+    def test_buyer_optimal_matching_full(self):
+        buyers = self.homebuyers[:]
+        match_dict = buyer_optimal_match(buyers, list(self.neighborhood_dict.values()))
+        n0_match_names = [b.name for b in match_dict[self.neighborhood_dict['N0']]]
+        n1_match_names = [b.name for b in match_dict[self.neighborhood_dict['N1']]]
+        n2_match_names = [b.name for b in match_dict[self.neighborhood_dict['N2']]]
+        self.assertListEqual(n0_match_names, ['H5', 'H11', 'H2', 'H4'])
+        self.assertListEqual(n1_match_names, ['H9', 'H8', 'H7', 'H1'])
+        self.assertListEqual(n2_match_names, ['H6', 'H3', 'H10', 'H0'])
 
 
 if __name__ == '__main__':
