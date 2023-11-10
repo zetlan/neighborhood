@@ -1,7 +1,6 @@
 from typing import List
 
 from base import BasePlayer
-from util import tokens_for_type
 from vector import PearlVector
 
 class Neighborhood(BasePlayer):
@@ -63,20 +62,3 @@ class Neighborhood(BasePlayer):
 
         if self._original_prefs is None:
             self._original_prefs = self.prefs[:]
-
-def neighborhood_from_string(n_string: str) -> Neighborhood:
-    tokens = tokens_for_type(n_string, 'N')
-
-    name_token = None
-    score_tokens = []
-
-    for token in tokens:
-        # tokens with a ':' represent goal ratings:
-        if ':' in token:
-            score_tokens.append(token)
-        # any other string must be the name
-        else:
-            name_token = token
-
-    characteristic_vector = PearlVector.from_tokens(score_tokens)
-    return Neighborhood(name=name_token, characteristics=characteristic_vector)

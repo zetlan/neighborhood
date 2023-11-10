@@ -2,10 +2,9 @@
 from typing import cast
 import unittest
 
-from buyer import Homebuyer, buyer_from_string
-from match import _match_pair, _unmatch_pair, buyer_optimal_match
-from neighborhood import Neighborhood, neighborhood_from_string
-from util import tokens_for_type
+from buyer import Homebuyer
+from match import _match_pair, _unmatch_pair, buyer_optimal_match, buyer_from_string, neighborhood_from_string, tokens_for_type
+from neighborhood import Neighborhood
 from vector import PearlVector
 import exceptions
 

@@ -10,11 +10,12 @@ falling into Dependency Hell.
 import argparse
 import logging
 import sys
-from typing import List
+from typing import Dict, List
 
 from buyer import Homebuyer
+import exceptions
 from neighborhood import Neighborhood
-from util import read_input_file, write_output_file
+from vector import PearlVector
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,88 @@ def buyer_optimal_match(buyers: List[Homebuyer], neighborhoods: List[Neighborhoo
                     else:
                         logger.debug("\t buyer is not as good a fit, continuing to check")
     return {n: n.matching for n in neighborhoods}
+
+def tokens_for_type(data_string: str, type_indicator: str) -> List[str]:
+    # let's start by being case tolerant; we'll work in uppercase:
+    tokens = data_string.upper().split(' ')
+    first_token = tokens.pop(0)
+    if first_token != type_indicator:
+        raise exceptions.DataParsingError(data_string)
+    return tokens
+
+def read_input_file(file_name: str) -> dict:
+    """Reads the file specified by file_name and returns a dictionary containing neighborhood and homebuyer dictionaries"""
+    neighborhoods = {}
+    homebuyers = {}
+    homebuyer_lines = []
+    with open(file_name) as input_file:
+        for line in input_file:
+            stripped = line.rstrip()
+            if line[0] == 'H':
+                # Homebuyer creation depends on having the neighborhoods, so save these lines and parse them last
+                homebuyer_lines.append(stripped)
+            elif line[0] == 'N':
+                neighborhood = neighborhood_from_string(stripped)
+                neighborhoods[neighborhood.name] = neighborhood
+            else:
+                # all other lines are ignored
+                pass
+    for line in homebuyer_lines:
+        homebuyer = buyer_from_string(line, neighborhoods)
+        homebuyers[homebuyer.name] = homebuyer
+    return { 'neighborhoods': list(neighborhoods.values()), 'homebuyers': list(homebuyers.values()) }
+
+def write_output_file(file_name: str, matches: Dict[str, List[Homebuyer]]) -> None:
+    """Write the matches out to a file.
+    
+    Matches are presumed to be provided in a dictionary whose keys are the names of the neighborhoods
+    and whose values are ordered lists of the homebuyers matched to those neighborhoods.
+    """
+    with open(file_name, "w") if file_name else sys.stdout as output_file:
+        for key, buyers in matches.items():
+            buyer_text = ' '.join([f"{buyer.name}({buyer.fits[key.name]})" for buyer in buyers])
+            print(f"{key}: {buyer_text}", file=output_file)
+
+def buyer_from_string(h_string: str, neighborhoods: Dict[str, Neighborhood]) -> object:
+    tokens = tokens_for_type(h_string, 'H')
+
+    name_token = None
+    goal_tokens = []
+    preference_string = None
+
+    for token in tokens:
+        # tokens with a ':' represent goal ratings:
+        if ':' in token:
+            goal_tokens.append(token)
+        # and there should be one and only one string with '>' indicating neighborhood prefs
+        elif '>' in token:
+            preference_string = token
+        # and any other string must be the name
+        else:
+            name_token = token
+
+    goal_vector = PearlVector.from_tokens(goal_tokens)
+    preference_keys = preference_string.split('>')
+    preference_list = [neighborhoods[key] for key in preference_keys if key in neighborhoods.keys()]
+    return Homebuyer(name=name_token, goals=goal_vector, preferences=preference_list)
+
+def neighborhood_from_string(n_string: str) -> Neighborhood:
+    tokens = tokens_for_type(n_string, 'N')
+
+    name_token = None
+    score_tokens = []
+
+    for token in tokens:
+        # tokens with a ':' represent goal ratings:
+        if ':' in token:
+            score_tokens.append(token)
+        # any other string must be the name
+        else:
+            name_token = token
+
+    characteristic_vector = PearlVector.from_tokens(score_tokens)
+    return Neighborhood(name=name_token, characteristics=characteristic_vector)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Match homebuyers to neighborhoods, in a buyer-optimal way')
